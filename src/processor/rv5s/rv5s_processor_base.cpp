@@ -106,6 +106,7 @@ void RV5StageVM_Base::Reset()
     last_breakpoint_pc_.reset(); // Clear breakpoint tracking on reset
 
     registers_.Reset();
+    vector_unit_.Reset();
     memory_controller_.reset();
     control_unit_.Reset();
 

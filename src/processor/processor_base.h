@@ -14,6 +14,7 @@
 #include "ui/processor_tab/circuit_scene.h"
 #include "processor/processor_constants.h"
 #include "common/undo_buffer.h"
+#include "processor/vector_unit.h"
 #include <QList>
 #include <QMap>
 #include <QMutex>
@@ -123,6 +124,7 @@ class ProcessorBase : public QObject
 
     MemoryController memory_controller_;
     RegisterFile registers_;
+    VectorUnit vector_unit_;
 
     alu::Alu alu_;
 

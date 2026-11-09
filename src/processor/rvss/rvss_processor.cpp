@@ -1331,6 +1331,7 @@ void RVSSProcessor::Reset()
     cycle_s_ = 0;
     last_breakpoint_pc_ = UINT64_MAX; // Clear breakpoint tracking on reset
     registers_.Reset();
+    vector_unit_.Reset();
     memory_controller_.reset();
     control_unit_.Reset();
     branch_flag_ = false;
