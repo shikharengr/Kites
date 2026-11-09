@@ -16,6 +16,28 @@
 
 namespace Kites
 {
+
+// Initial architectural vector configuration.
+inline constexpr size_t VECTOR_REGISTER_BITS = 128;
+inline constexpr size_t VECTOR_REGISTER_WORD_BITS = 64;
+
+inline constexpr size_t VECTOR_REGISTER_WORD_COUNT =
+    VECTOR_REGISTER_BITS / VECTOR_REGISTER_WORD_BITS;
+
+static_assert(VECTOR_REGISTER_BITS % VECTOR_REGISTER_WORD_BITS == 0);
+
+// Represents the raw storage of one architectural vector register.
+/**
+ * @brief Stores the raw bits of one vector register.
+ *
+ * The register is independent of SEW and data type.
+ * Integer and floating-point vector operations share this storage.
+ */
+struct VectorRegister
+{
+  std::array<uint64_t, VECTOR_REGISTER_WORD_COUNT> words = {};
+};
+
 /**
  * @brief Represents a register file containing integer, floating-point, and vector registers.
  */
@@ -32,6 +54,9 @@ class RegisterFile : public QObject
     static constexpr size_t NUM_CSR = 4096; ///< Number of Control and Status Registers (CSR).
 
     std::array<uint64_t, NUM_CSR> csr_ = {}; ///< Array for storing CSR values.
+
+    static constexpr size_t NUM_VR = 32; ///< Number of Vector Registers (VR).
+    std::array<VectorRegister, NUM_VR> vr_ = {}; ///< Array for storing VR values.
 
   public:
     /**
@@ -79,6 +104,53 @@ class RegisterFile : public QObject
      */
     void WriteFpr(size_t reg, uint64_t value);
 
+    /**
+     * @brief Reads the value of a Vector Register (VR).
+     * @param reg The index of the VR to read.
+     * @return The value of the VR at the specified index.
+     */
+    [[nodiscard]] VectorRegister ReadVr(size_t reg) const;
+
+    /**
+     * @brief Writes a value to a Vector Register (VR).
+     * @param reg The index of the VR to write.
+     * @param value The value to write.
+     */
+    void WriteVr(size_t reg, const VectorRegister &value);
+
+    /**
+     * @brief Reads an individual element from a Vector Register (VR).
+     * @param reg The index of the VR to read.
+     * @param element The index of the element to read.
+     * @param element_width The width of the element in bits.
+     * @return The raw bits of the specified element.
+     */
+    [[nodiscard]] uint64_t ReadVrElement(
+        size_t reg,
+        size_t element,
+        size_t element_width
+    ) const;
+
+    /**
+     * @brief Writes an individual element to a Vector Register (VR).
+     * @param reg The index of the VR to write.
+     * @param element The index of the element to write.
+     * @param element_width The width of the element in bits.
+     * @param value The value to write.
+     */
+    void WriteVrElement(
+        size_t reg,
+        size_t element,
+        size_t element_width,
+        uint64_t value
+    );
+
+    /**
+     * @brief Retrieves the values of all Vector Registers (VR).
+     * @return A vector containing the values of all VRs.
+     */
+    [[nodiscard]] std::vector<VectorRegister> GetVrValues() const;
+
     [[nodiscard]] uint64_t ReadCsr(size_t reg) const;
 
     void WriteCsr(size_t reg, uint64_t value);
@@ -96,6 +168,7 @@ class RegisterFile : public QObject
     [[nodiscard]] std::vector<uint64_t> GetFprValues() const;
 
     void ModifyRegister(const std::string &reg_name, uint64_t value);
+    void ModifyRegister(const std::string &reg_name, const VectorRegister &value);
 
   signals:
     void updateRegister(size_t regIndex, uint64_t value);
@@ -109,6 +182,8 @@ extern const std::unordered_set<std::string> valid_floating_point_registers;
 
 extern const std::unordered_set<std::string> valid_csr_registers;
 
+extern const std::unordered_set<std::string> valid_vector_registers;
+
 extern const std::unordered_map<std::string, int> csr_to_address;
 
 /**
@@ -119,6 +194,8 @@ extern const std::unordered_map<std::string, std::string> reg_alias_to_name;
 bool IsValidGeneralPurposeRegister(const std::string &reg);
 
 bool IsValidFloatingPointRegister(const std::string &reg);
+
+bool IsValidVectorRegister(const std::string &reg);
 
 bool IsValidCsr(const std::string &reg);
 }//namespace Kites

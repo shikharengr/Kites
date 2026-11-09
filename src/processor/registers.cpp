@@ -15,6 +15,31 @@
 
 namespace Kites
 {
+// Helper functions for vector register element access.
+namespace
+{
+
+void ValidateVectorElementWidth(size_t width)
+{
+    if (width != 8 &&
+        width != 16 &&
+        width != 32 &&
+        width != 64)
+    {
+        throw std::invalid_argument(
+            "Unsupported vector element width"
+        );
+    }
+}
+
+uint64_t GetVectorElementMask(size_t width)
+{
+    if (width == 64)
+        return ~uint64_t{0};
+
+    return (uint64_t{1} << width) - 1;
+}
+} // namespace
 RegisterFile::RegisterFile(QObject *parent) : QObject(parent)
 {
 }
@@ -23,6 +48,7 @@ void RegisterFile::Reset()
 {
     gpr_.fill(0);
     fpr_.fill(0.0);
+    vr_.fill(VectorRegister{});
     csr_.fill(0);
     csr_[0x002] = 0b000; // Default: RNE (IEEE 754)
     emit registerResetSignal();
@@ -63,6 +89,115 @@ void RegisterFile::WriteFpr(size_t reg, uint64_t value)
     emit updateFRegister(reg, value);
 }
 
+VectorRegister RegisterFile::ReadVr(size_t reg) const
+{
+    if (reg >= NUM_VR)
+        throw std::out_of_range("Invalid VR index");
+
+    return vr_[reg];
+}
+
+void RegisterFile::WriteVr(
+    size_t reg,
+    const VectorRegister &value
+)
+{
+    if (reg >= NUM_VR)
+        throw std::out_of_range("Invalid VR index");
+
+    vr_[reg] = value;
+}
+
+uint64_t RegisterFile::ReadVrElement(
+    size_t reg,
+    size_t element,
+    size_t element_width
+) const
+{
+    if (reg >= NUM_VR)
+        throw std::out_of_range("Invalid VR index");
+
+    ValidateVectorElementWidth(element_width);
+
+    const size_t elements_per_register =
+        VECTOR_REGISTER_BITS / element_width;
+
+    if (element >= elements_per_register)
+        throw std::out_of_range("Invalid VR element index");
+
+    const size_t bit_offset = element * element_width;
+
+    const size_t word_index =
+        bit_offset / VECTOR_REGISTER_WORD_BITS;
+
+    const size_t bit_shift =
+        bit_offset % VECTOR_REGISTER_WORD_BITS;
+
+    const uint64_t mask =
+        GetVectorElementMask(element_width);
+
+    return (vr_[reg].words[word_index] >> bit_shift) & mask;
+}
+
+void RegisterFile::WriteVrElement(
+    size_t reg,
+    size_t element,
+    size_t element_width,
+    uint64_t value
+)
+{
+    if (reg >= NUM_VR)
+        throw std::out_of_range("Invalid VR index");
+
+    ValidateVectorElementWidth(element_width);
+
+    const size_t elements_per_register =
+        VECTOR_REGISTER_BITS / element_width;
+
+    if (element >= elements_per_register)
+        throw std::out_of_range("Invalid VR element index");
+
+    const size_t bit_offset = element * element_width;
+
+    const size_t word_index =
+        bit_offset / VECTOR_REGISTER_WORD_BITS;
+
+    const size_t bit_shift =
+        bit_offset % VECTOR_REGISTER_WORD_BITS;
+
+    const uint64_t mask =
+        GetVectorElementMask(element_width);
+
+    uint64_t &word = vr_[reg].words[word_index];
+
+    word = (word & ~(mask << bit_shift)) | ((value & mask) << bit_shift);
+}
+
+bool IsValidVectorRegister(const std::string &reg)
+{
+    return valid_vector_registers.find(reg) !=
+           valid_vector_registers.end();
+}
+
+void RegisterFile::ModifyRegister(
+    const std::string &reg_name,
+    const VectorRegister &value
+)
+{
+    std::string reg_name_n = reg_alias_to_name.at(reg_name);
+
+    if (IsValidVectorRegister(reg_name_n))
+    {
+        WriteVr(std::stoi(reg_name_n.substr(1)), value);
+    }
+    else
+    {
+        throw std::invalid_argument(
+            "Invalid vector register name: " + reg_name_n
+        );
+    }
+}
+
 uint64_t RegisterFile::ReadCsr(size_t reg) const
 {
     if (reg >= NUM_CSR)
@@ -85,6 +220,11 @@ std::vector<uint64_t> RegisterFile::GetGprValues() const
 std::vector<uint64_t> RegisterFile::GetFprValues() const
 {
     return {fpr_.begin(), fpr_.end()};
+}
+
+std::vector<VectorRegister> RegisterFile::GetVrValues() const
+{
+    return {vr_.begin(), vr_.end()};
 }
 
 void RegisterFile::ModifyRegister(const std::string &reg_name, uint64_t value)
@@ -130,6 +270,13 @@ const std::unordered_set<std::string> valid_floating_point_registers = {
     "ft24", "ft25", "ft26", "ft27", "ft28", "ft29", "ft30", "ft31",
 };
 
+const std::unordered_set<std::string> valid_vector_registers = {
+    "v0",  "v1",  "v2",  "v3",  "v4",  "v5",  "v6",  "v7",
+    "v8",  "v9",  "v10", "v11", "v12", "v13", "v14", "v15",
+    "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
+    "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31"
+};
+
 const std::unordered_set<std::string> valid_csr_registers = {"fflags", "frm", "fcsr"};
 
 const std::unordered_map<std::string, int> csr_to_address{
@@ -170,6 +317,15 @@ const std::unordered_map<std::string, std::string> reg_alias_to_name = {
     {"f20", "f20"},       {"f21", "f21"},  {"f22", "f22"},   {"f23", "f23"}, {"f24", "f24"},
     {"f25", "f25"},       {"f26", "f26"},  {"f27", "f27"},   {"f28", "f28"}, {"f29", "f29"},
     {"f30", "f30"},       {"f31", "f31"},
+
+    {"v0", "v0"},   {"v1", "v1"},   {"v2", "v2"},   {"v3", "v3"},
+    {"v4", "v4"},   {"v5", "v5"},   {"v6", "v6"},   {"v7", "v7"},
+    {"v8", "v8"},   {"v9", "v9"},   {"v10", "v10"}, {"v11", "v11"},
+    {"v12", "v12"}, {"v13", "v13"}, {"v14", "v14"}, {"v15", "v15"},
+    {"v16", "v16"}, {"v17", "v17"}, {"v18", "v18"}, {"v19", "v19"},
+    {"v20", "v20"}, {"v21", "v21"}, {"v22", "v22"}, {"v23", "v23"},
+    {"v24", "v24"}, {"v25", "v25"}, {"v26", "v26"}, {"v27", "v27"},
+    {"v28", "v28"}, {"v29", "v29"}, {"v30", "v30"}, {"v31", "v31"},
 
     {"fflags", "fflags"}, {"frm", "frm"},  {"fcsr", "fcsr"},
 
